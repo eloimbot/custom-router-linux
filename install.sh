@@ -1,34 +1,57 @@
 #!/bin/bash
-echo "========================================="
-echo " Instalador del controlador estilo UniFi OS"
-echo "========================================="
+# ========================================================
+# Install script completo para custom-router-linux
+# ========================================================
 
-# Actualizar paquetes
-sudo apt update && sudo apt upgrade -y
+# Variables
+REPO_URL="https://github.com/eloimbot/custom-router-linux.git"
+DIR="$HOME/custom-router-linux"
 
-# Instalar Node.js y npm si no están
-if ! command -v node &> /dev/null
-then
-    echo "Node.js no encontrado, instalando..."
+echo "=== Instalación de Custom Router Linux ==="
+
+# Actualizar repositorios y paquetes
+echo "Actualizando sistema..."
+sudo apt update -y
+sudo apt upgrade -y
+
+# Instalar dependencias básicas
+echo "Instalando git y curl..."
+sudo apt install -y git curl build-essential
+
+# Instalar Node.js y npm si no existen
+if ! command -v node >/dev/null 2>&1; then
+    echo "Instalando Node.js..."
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
     sudo apt install -y nodejs
 else
-    echo "Node.js ya está instalado. Version: $(node -v)"
+    echo "Node.js ya está instalado"
 fi
 
-# Instalar npm si no existe
-if ! command -v npm &> /dev/null
-then
-    echo "npm no encontrado, instalando..."
-    sudo apt install -y npm
+# Clonar el repositorio si no existe
+if [ ! -d "$DIR" ]; then
+    echo "Clonando repositorio en $DIR..."
+    git clone $REPO_URL "$DIR"
 else
-    echo "npm ya está instalado. Version: $(npm -v)"
+    echo "Repositorio ya existe en $DIR, actualizando..."
+    cd "$DIR"
+    git pull
 fi
 
-# Instalar dependencias del proyecto
-echo "Instalando dependencias del proyecto..."
-npm install
+cd "$DIR"
+
+# Instalar dependencias de Node.js
+if [ -f package.json ]; then
+    echo "Instalando dependencias del proyecto..."
+    npm install
+else
+    echo "No se encontró package.json, omitiendo npm install"
+fi
 
 # Arrancar el servidor
-echo "Iniciando el servidor..."
-npm start
+if [ -f package.json ]; then
+    echo "Iniciando servidor..."
+    npm start &
+    echo "Servidor iniciado en segundo plano"
+fi
+
+echo "=== Instalación completa ==="
