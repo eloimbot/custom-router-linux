@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Mini UniFi-like Controller — UI Completa</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- Socket.IO client (servido por el servidor Node) -->
+<script src="/socket.io/socket.io.js"></script>
+<style>
+:root{
+  --bg:#f4f7fb; --card:#fff; --muted:#8a98a6; --accent:#276be6; --radius:12px;
+  --shadow:0 8px 28px rgba(20,34,56,0.06);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:#172033}
+.app{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:76px;background:#fff;border-right:1px solid #e6edf3;display:flex;flex-direction:column;align-items:center;padding:14px 8px;gap:10px}
+.logo{width:52px;height:40px;border-radius:10px;background:linear-gradient(90deg,var(--accent),#1e53c9);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;box-shadow:var(--shadow)}
+.side-btn{width:48px;height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:transparent;border:none;font-size:20px;color:#5e6b78}
+.side-btn.active,.side-btn:hover{background:#eef6ff;color:var(--accent);box-shadow:0 3px 10px rgba(39,107,230,0.08)}
+.main{flex:1;display:flex;flex-direction:column;overflow:auto}
+.header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid rgba(0,0,0,0.04)}
+.title{display:flex;flex-direction:column}
+.title h1{margin:0;font-size:18px}
+.title small{color:var(--muted);font-size:12px}
+.container{padding:18px 22px;display:flex;flex-direction:column;gap:16px}
+.row{display:flex;gap:16px}
+.card{background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow)}
+.card.flex{flex:1}
+.chart-wrap{height:200px}
+.ap-grid{display:flex;flex-wrap:wrap;gap:12px}
+.ap-item{width:240px;padding:12px;border-radius:10px;background:linear-gradient(180deg,#fff,#fbfdff);border:1px solid #eef6ff;box-shadow:0 2px 6px rgba(10,20,40,0.03)}
+.small{font-size:12px;color:var(--muted)}
+.client-list{display:flex;flex-direction:column;gap:8px}
+.client-item{display:flex;align-items:center;gap:12px;padding:8px;background:#fff;border-radius:8px;box-shadow:0 2px 6px rgba(10,20,40,0.03)}
+.dot{width:36px;height:36px;border-radius:10px;background:#eef6ff;display:flex;align-items:center;justify-content:center;color:var(--accent);font-weight:700}
+.form-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.input,select{padding:8px;border-radius:8px;border:1px solid #d6dde6}
+.btn{padding:8px 12px;border-radius:8px;border:none;background:var(--accent);color:white;cursor:pointer}
+.ghost{background:transparent;border:1px solid #dfeafc;color:var(--accent)}
+.footer{padding:12px 22px;color:var(--muted);font-size:13px;border-top:1px solid rgba(0,0,0,0.03)}
+.code{font-family:monospace;background:#f3f6fb;padding:4px 6px;border-radius:6px;color:#123}
+.badge{display:inline-block;padding:4px 8px;border-radius:8px;background:#f1f6ff;color:var(--accent);font-weight:600}
+@media (max-width:1000px){.row{flex-direction:column}.ap-item{width:100%}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="logo">U</div>
+    <button class="side-btn active" data-page="dashboard" title="Dashboard">🏠</button>
+    <button class="side-btn" data-page="devices" title="Devices">📡</button>
+    <button class="side-btn" data-page="clients" title="Clients">👥</button>
+    <button class="side-btn" data-page="wlans" title="WLANs">📶</button>
+    <button class="side-btn" data-page="vlans" title="VLANs">🔧</button>
+    <button class="side-btn" data-page="logs" title="Logs">📝</button>
+    <div style="flex:1"></div>
+    <button class="side-btn" data-page="settings" title="Settings">⚙️</button>
+  </aside>
+
+  <main class="main">
+    <div class="header">
+      <div class="title">
+        <h1>Mini UniFi-like Controller</h1>
+        <small class="small">Controlador para APs — sin switches — actualizado en tiempo real</small>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="small">Server: <span id="serverHost" class="code">localhost</span></div>
+        <button class="btn" id="btnScan">Buscar APs</button>
+      </div>
+    </div>
+
+    <div class="container">
+      <!-- Dashboard -->
+      <section id="dashboard" class="page">
+        <div class="row">
+          <div class="card flex">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><strong>Clientes conectados</strong><div class="small">Últimos datos</div></div>
+              <div class="small">Total: <span id="totalClients">0</span></div>
+            </div>
+            <div class="chart-wrap"><canvas id="chartClients"></canvas></div>
+          </div>
+
+          <div class="card flex">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div><strong>Tráfico</strong><div class="small">KB agregados por AP</div></div>
+              <div class="small">Total: <span id="totalTraffic">0</span> KB</div>
+            </div>
+            <div class="chart-wrap"><canvas id="chartTraffic"></canvas></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><strong>Access Points</strong><div class="small">Estado y clientes</div></div>
+            <div><small id="apCount">0 APs</small></div>
+          </div>
+          <div style="margin-top:12px" id="apGrid" class="ap-grid"></div>
+        </div>
+      </section>
+
+      <!-- Devices -->
+      <section id="devices" class="page" style="display:none">
+        <div class="row">
+          <div class="card flex">
+            <strong>Lista de APs</strong>
+            <div style="margin-top:12px" id="deviceList" class="ap-grid"></div>
+          </div>
+          <div class="card" style="width:360px">
+            <strong>AP seleccionado</strong>
+            <div id="selectedDevice" style="margin-top:8px">Ninguno</div>
+            <div style="margin-top:10px">
+              <label>VLAN asignada: <input id="setVlan" class="input" placeholder="10"/></label>
+              <div style="margin-top:8px"><button id="btnSetVlan" class="btn ghost">Asignar VLAN</button></div>
+            </div>
+            <hr style="margin:12px 0">
+            <strong>Adoptar AP</strong>
+            <div class="form-row" style="margin-top:8px">
+              <input id="adoptId" class="input" placeholder="id (ej. ap-lab)"/>
+              <input id="adoptName" class="input" placeholder="Nombre"/>
+            </div>
+            <div style="margin-top:8px"><button id="btnAdopt" class="btn">Adoptar</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Clients -->
+      <section id="clients" class="page" style="display:none">
+        <div class="card">
+          <strong>Clientes conectados</strong>
+          <div style="margin-top:12px" id="clientsBox" class="client-list"></div>
+        </div>
+      </section>
+
+      <!-- WLANs -->
+      <section id="wlans" class="page" style="display:none">
+        <div class="card">
+          <strong>WLAN / SSID</strong>
+          <div class="small">Gestiona SSIDs (UI local). Para aplicar realmente debes integrar con el agente.</div>
+          <div style="margin-top:8px" class="form-row">
+            <input id="newSsid" class="input" placeholder="SSID (ej. MiRed)"/>
+            <input id="newSsidVlan" class="input" placeholder="VLAN ID (ej. 10)"/>
+            <button id="btnCreateSsid" class="btn">Crear SSID (UI)</button>
+          </div>
+          <div id="ssidList" style="margin-top:12px"></div>
+        </div>
+      </section>
+
+      <!-- VLANs -->
+      <section id="vlans" class="page" style="display:none">
+        <div class="row">
+          <div class="card flex">
+            <strong>VLANs</strong>
+            <div class="small">Crear VLAN y asignarla a APs</div>
+            <div style="margin-top:10px" class="form-row">
+              <input id="vlanId" class="input" placeholder="VLAN ID"/>
+              <input id="vlanSsid" class="input" placeholder="SSID asociado"/>
+              <input id="vlanAps" class="input" placeholder="AP IDs (coma)"/>
+              <button id="btnCreateVlan" class="btn">Crear VLAN</button>
+            </div>
+            <div id="vlanList" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card" style="width:340px">
+            <strong>Acciones</strong>
+            <div class="small">Enviar configuración a APs</div>
+            <div style="margin-top:10px">
+              <label>AP id: <input id="actionAp" class="input" placeholder="ap-lab"/></label>
+              <label style="margin-top:8px">VLAN: <input id="actionVlan" class="input" placeholder="10"/></label>
+              <div style="margin-top:8px"><button id="btnPush" class="btn">Enviar a AP</button></div>
+            </div>
+            <div id="actionStatus" style="margin-top:10px;color:var(--muted)"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Logs -->
+      <section id="logs" class="page" style="display:none">
+        <div class="card">
+          <strong>Eventos / Logs</strong>
+          <div id="logBox" style="margin-top:12px;max-height:300px;overflow:auto;background:#f8fafc;padding:8px;border-radius:8px"></div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section id="settings" class="page" style="display:none">
+        <div class="card">
+          <strong>Settings</strong>
+          <div class="small">Opciones básicas</div>
+          <div style="margin-top:8px" class="form-row">
+            <label>Host API: <input id="apiHost" class="input" value="" placeholder="dejar vacío = host actual"/></label>
+            <button id="btnSaveHost" class="btn ghost">Guardar</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <div class="footer">Demo: controlador ligero — no gestiona switches. APs deben reportar por UDP a puerto 4000. UI comunicada por HTTP+Socket.IO.</div>
+  </main>
+</div>
+
+<script>
+/* -------------------------
+   Setup y utilidades
+   ------------------------- */
+const socket = io(); // conexión Socket.IO (sirve /socket.io/socket.io.js)
+const pagesBtns = document.querySelectorAll('.side-btn');
+const hostHint = document.getElementById('serverHost');
+let API_BASE = ''; // si quieres usar otro host, guarda aquí
+
+hostHint.textContent = location.hostname;
+document.getElementById('apiHost').value = '';
+
+function apiUrl(path){
+  if(!API_BASE) return path;
+  return (API_BASE.endsWith('/')?API_BASE.slice(0,-1):API_BASE) + path;
+}
+
+function log(msg){
+  const b = document.getElementById('logBox');
+  const el = document.createElement('div'); el.textContent = '['+new Date().toLocaleTimeString()+'] '+msg;
+  b.prepend(el);
+}
+
+/* Navegación lateral */
+pagesBtns.forEach(b=>{
+  b.addEventListener('click',()=>{
+    pagesBtns.forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.querySelectorAll('.page').forEach(p=>p.style.display='none');
+    document.getElementById(b.dataset.page).style.display='block';
+  });
+});
+
+/* -------------------------
+   Charts
+   ------------------------- */
+const ctxC = document.getElementById('chartClients').getContext('2d');
+const ctxT = document.getElementById('chartTraffic').getContext('2d');
+const clientsChart = new Chart(ctxC,{type:'line',data:{labels:[],datasets:[{label:'Clientes',data:[],borderColor:'#276be6',backgroundColor:'#276be620'}]},options:{maintainAspectRatio:false}});
+const trafficChart = new Chart(ctxT,{type:'line',data:{labels:[],datasets:[{label:'KB',data:[],borderColor:'#1e9bd1',backgroundColor:'#1e9bd120'}]},options:{maintainAspectRatio:false}});
+
+/* Estado local */
+let selectedDeviceId = null;
+function selectDevice(id){
+  selectedDeviceId = id;
+  document.getElementById('selectedDevice').innerText = id;
+  log('AP seleccionado: '+id);
+}
+
+/* -------------------------
+   Funciones UI / API
+   ------------------------- */
+async function fetchDevices(){
+  try{
+    const res = await fetch(apiUrl('/api/devices'));
+    if(!res.ok) throw new Error(res.statusText);
+    return await res.json();
+  }catch(e){ log('Error fetch /api/devices: '+e.message); return []; }
+}
+async function fetchClients(){
+  try{
+    const res = await fetch(apiUrl('/api/clients'));
+    if(!res.ok) return [];
+    return await res.json();
+  }catch(e){ return []; }
+}
+async function fetchVlans(){
+  try{
+    const res = await fetch(apiUrl('/api/vlans'));
+    if(!res.ok) return [];
+    return await res.json();
+  }catch(e){ return []; }
+}
+
+/* Refresh completo */
+async function refreshAll(){
+  try{
+    const devs = await fetchDevices();
+    const cls = await fetchClients();
+    const vlans = await fetchVlans();
+
+    const totalClients = devs.reduce((s,d)=>s + (Number(d.clients)||0), 0);
+    const totalTraffic = devs.reduce((s,d)=>s + (Number(d.traffic)||0), 0);
+
+    document.getElementById('totalClients').textContent = totalClients;
+    document.getElementById('totalTraffic').textContent = totalTraffic;
+    document.getElementById('apCount').textContent = devs.length + ' APs';
+
+    // AP grid (dashboard)
+    const apGrid = document.getElementById('apGrid'); apGrid.innerHTML = '';
+    devs.forEach(d=>{
+      const el = document.createElement('div'); el.className='ap-item';
+      el.innerHTML = `<h4>${d.name}</h4>
+        <div class="small">id: ${d.id}</div>
+        <div style="margin-top:8px"><strong>Status:</strong> ${d.status||'—'} · <strong>VLAN:</strong> ${d.vlan||'—'}</div>
+        <div style="margin-top:8px" class="small">Clientes: ${d.clients||0} · Tráfico: ${d.traffic||0} KB</div>
+        <div style="margin-top:10px"><button class="btn ghost" onclick="selectDevice('${d.id}')">Seleccionar</button> <button class="btn" onclick="openConsole('${d.id}')">Consola</button></div>`;
+      apGrid.appendChild(el);
+    });
+
+    // Device list (Devices page)
+    const devList = document.getElementById('deviceList'); devList.innerHTML = '';
+    devs.forEach(d=>{
+      const el = document.createElement('div'); el.className='ap-item';
+      el.innerHTML = `<strong>${d.name}</strong><div class="small">id: ${d.id}</div><div style="margin-top:6px">VLAN: ${d.vlan||'—'}</div>`;
+      devList.appendChild(el);
+    });
+
+    // Clients list
+    const clBox = document.getElementById('clientsBox'); clBox.innerHTML = '';
+    (cls || []).forEach(c=>{
+      const el=document.createElement('div'); el.className='client-item';
+      el.innerHTML = `<div class="dot">C</div><div><strong>${c.name||'client'}</strong><div class="small">${c.ap || '—'} · ${c.ip||'—'}</div></div>`;
+      clBox.appendChild(el);
+    });
+
+    // VLAN list
+    const vlanList = document.getElementById('vlanList'); vlanList.innerHTML = '';
+    (vlans || []).forEach(v=>{
+      const row=document.createElement('div'); row.className='ap-item';
+      row.innerHTML = `<strong>VLAN ${v.id}</strong><div class="small">SSID: ${v.ssid}</div><div class="small">APs: ${(v.aps||[]).join(', ')}</div>`;
+      vlanList.appendChild(row);
+    });
+
+    // Charts: push new point
+    const now = new Date().toLocaleTimeString();
+    clientsChart.data.labels.push(now);
+    trafficChart.data.labels.push(now);
+    clientsChart.data.datasets[0].data.push(totalClients);
+    trafficChart.data.datasets[0].data.push(totalTraffic);
+    if(clientsChart.data.labels.length > 20){
+      clientsChart.data.labels.shift();
+      clientsChart.data.datasets[0].data.shift();
+      trafficChart.data.datasets[0].data.shift();
+    }
+    clientsChart.update();
+    trafficChart.update();
+  }catch(e){
+    log('Error refreshAll: '+e.message);
+  }
+}
+
+/* -------------------------
+   Botones y acciones
+   ------------------------- */
+document.getElementById('btnScan').addEventListener('click', ()=>{ log('Scan manual disparado'); refreshAll(); });
+
+document.getElementById('btnAdopt').addEventListener('click', async ()=>{
+  const id = document.getElementById('adoptId').value.trim();
+  const name = document.getElementById('adoptName').value.trim();
+  if(!id || !name){ alert('id y name son requeridos'); return; }
+  try{
+    const res = await fetch(apiUrl('/api/devices/adopt'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id,name}) });
+    if(res.ok){ log('AP adoptado: '+id); refreshAll(); } else { const txt = await res.text(); alert('Error: '+txt); log('Adopt failed: '+txt); }
+  }catch(e){ log('Adopt error: '+e.message); alert('Fallo al adoptar'); }
+});
+
+document.getElementById('btnSetVlan').addEventListener('click', async ()=>{
+  if(!selectedDeviceId){ alert('Selecciona un AP'); return; }
+  const vlan = parseInt(document.getElementById('setVlan').value);
+  if(!vlan){ alert('Introduce VLAN válida'); return; }
+  try{
+    const res = await fetch(apiUrl('/api/devices/'+encodeURIComponent(selectedDeviceId) + '/config'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ vlan })});
+    if(res.ok){ log('VLAN '+vlan+' asignada a '+selectedDeviceId); refreshAll(); } else { log('Error set vlan: '+res.statusText); alert('Servidor rechazó la petición'); }
+  }catch(e){ log('Error set vlan: '+e.message); alert('Error network'); }
+});
+
+document.getElementById('btnCreateVlan').addEventListener('click', async ()=>{
+  const id = parseInt(document.getElementById('vlanId').value);
+  const ssid = document.getElementById('vlanSsid').value.trim();
+  const aps = document.getElementById('vlanAps').value.split(',').map(s=>s.trim()).filter(Boolean);
+  if(!id || !ssid || aps.length === 0){ alert('Completa id, ssid y APs'); return; }
+  try{
+    const res = await fetch(apiUrl('/api/vlan'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id, ssid, aps })});
+    if(res.ok){ log('VLAN creada: '+id); refreshAll(); } else { log('Error crear VLAN: '+res.statusText); alert('Error crear VLAN'); }
+  }catch(e){ log('Error crear VLAN: '+e.message); alert('Error network'); }
+});
+
+document.getElementById('btnPush').addEventListener('click', async ()=>{
+  const ap = document.getElementById('actionAp').value.trim();
+  const vlan = parseInt(document.getElementById('actionVlan').value);
+  if(!ap || !vlan){ alert('Rellena AP y VLAN'); return; }
+  document.getElementById('actionStatus').textContent = 'Enviando...';
+  try{
+    const res = await fetch(apiUrl('/api/devices/'+encodeURIComponent(ap) + '/config'), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ vlan })});
+    if(res.ok){ document.getElementById('actionStatus').textContent = 'OK — enviado'; log('Config enviada a '+ap); refreshAll(); } else { document.getElementById('actionStatus').textContent = 'Error: '+res.status; log('Push error: '+res.statusText); }
+  }catch(e){ document.getElementById('actionStatus').textContent = 'Error network'; log('Push network: '+e.message); }
+});
+
+document.getElementById('btnCreateSsid').addEventListener('click', ()=>{
+  const s = document.getElementById('newSsid').value.trim();
+  const v = parseInt(document.getElementById('newSsidVlan').value);
+  if(!s || !v){ alert('SSID y VLAN requeridos'); return; }
+  // SSID sólo UI-local (no persistencia server por ahora)
+  const out = document.getElementById('ssidList');
+  const node = document.createElement('div'); node.className='ap-item'; node.innerHTML = `<strong>${s}</strong><div class="small">VLAN ${v}</div>`;
+  out.appendChild(node);
+  log('SSID creado (UI): '+s);
+});
+
+document.getElementById('btnSaveHost').addEventListener('click', ()=>{
+  API_BASE = document.getElementById('apiHost').value.trim();
+  alert('Host API guardado: ' + (API_BASE||'host actual'));
+});
+
+/* consola placeholder */
+function openConsole(id){ alert('Consola no implementada en demo — usar /api para comandos remotos'); }
+
+/* -------------------------
+   Socket.IO: actualización en tiempo real
+   ------------------------- */
+socket.on('connect', ()=>{ log('Socket.IO conectado'); });
+socket.on('telemetry', (d) => {
+  // actualiza rápidamente registro local (puede usar refreshAll para fuerza total)
+  log(`Telemetry: ${d.id} clients=${d.clients} traffic=${d.traffic}`);
+  refreshAll(); // sencillo: refrescar vista completa
+});
+socket.on('devices:update', ()=>{ log('devices:update recvd'); refreshAll(); });
+socket.on('vlans:update', ()=>{ log('vlans:update recvd'); refreshAll(); });
+socket.on('event', (e)=>{ log(`EVENT ${e.level}: ${e.msg}`); });
+
+/* -------------------------
+   Inicio
+   ------------------------- */
+refreshAll();
+setInterval(refreshAll, 3000);
+log('UI lista');
+</script>
+</body>
+</html>
